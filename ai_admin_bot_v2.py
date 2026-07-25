@@ -347,6 +347,13 @@ async def execute_action(ctx: commands.Context, action_data: dict):
     except Exception as e:
         await ctx.send(f"❌ Error aaya: {e}")
 
+async def safe_send(ctx: commands.Context, text: str):
+    """Discord ke 2000-char limit aur empty message issue se bachata hai."""
+    if not text or not text.strip():
+        text = "⚠️ Model se khaali response aaya, dobara try kar."
+    for i in range(0, len(text), 1900):  # 1900 rakha hai 2000 se thoda kam, safe margin ke liye
+        await ctx.send(text[i:i + 1900])
+
 # ==================== COMMANDS ====================
 
 @bot.event
@@ -360,22 +367,32 @@ async def do(ctx: commands.Context, *, instruction: str):
         await ctx.send("❌ Ye command sirf admins use kar sakte hain.")
         return
 
-    async with ctx.typing():
-        raw_result = route_and_answer(ADMIN_TASK_INSTRUCTIONS, instruction)
-        try:
-            cleaned = raw_result.replace("```json", "").replace("```", "").strip()
-            action_data = json.loads(cleaned)
-        except Exception:
-            await ctx.send(raw_result)
-            return
-        await execute_action(ctx, action_data)
+    try:
+        async with ctx.typing():
+            raw_result = route_and_answer(ADMIN_TASK_INSTRUCTIONS, instruction)
+            try:
+                cleaned = raw_result.replace("```json", "").replace("```", "").strip()
+                action_data = json.loads(cleaned)
+            except Exception:
+                await safe_send(ctx, raw_result)
+                return
+            await execute_action(ctx, action_data)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # Render logs me poora error dikhega
+        await safe_send(ctx, f"❌ Unexpected error: {e}")
 
 @bot.command()
 async def ai(ctx: commands.Context, *, message: str):
     """Sabke liye: normal AI chat."""
-    async with ctx.typing():
-        result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message)
-        await ctx.send(result)
+    try:
+        async with ctx.typing():
+            result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message)
+            await safe_send(ctx, result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # Render logs me poora error dikhega
+        await safe_send(ctx, f"❌ Unexpected error: {e}")
 
 # ==================== START BOT ====================
 
@@ -383,8 +400,7 @@ if __name__ == "__main__":
     # Keep-alive server start karo (Render ke liye)
     keep_alive()
     print("🌐 Keep-alive web server started!")
-    
+
     # Discord bot start karo
-    keep_alive()
     bot.run(DISCORD_BOT_TOKEN)
 
