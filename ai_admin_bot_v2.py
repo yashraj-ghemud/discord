@@ -21,8 +21,17 @@ import json
 import datetime
 import os
 import threading
+import logging
 from dotenv import load_dotenv
 from flask import Flask
+
+# ==================== LOGGING SETUP ====================
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)-8s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('AIBot')
 
 # ==================== KEEP-ALIVE WEB SERVER (Render Web Service ke liye) ====================
 
@@ -76,8 +85,9 @@ bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
 def call_groq(model: str, system_prompt: str, user_message: str) -> str | None:
     """Groq ko call karta hai, key fail hone par next key try karta hai. Raw text content return karta hai."""
-    for key in GROQ_API_KEYS:
+    for idx, key in enumerate(GROQ_API_KEYS, 1):
         try:
+            logger.info(f"[Groq] Trying key {idx}/{len(GROQ_API_KEYS)} with model: {model}")
             response = requests.post(
                 url="https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -91,20 +101,27 @@ def call_groq(model: str, system_prompt: str, user_message: str) -> str | None:
                 timeout=30,
             )
             if response.status_code == 200:
+                logger.info(f"[Groq] ✅ Success with key {idx} and model {model}")
                 return response.json()["choices"][0]["message"]["content"].strip()
             else:
-                print(f"[Groq] key ...{key[-4:]} failed with {model}: {response.status_code}")
+                logger.warning(f"[Groq] ❌ Key {idx} failed with {model}: Status {response.status_code} - {response.text[:100]}")
                 continue
-        except Exception as e:
-            print(f"[Groq] key ...{key[-4:]} error: {e}")
+        except requests.exceptions.Timeout:
+            logger.error(f"[Groq] ⏱️ Key {idx} timeout after 30s")
             continue
+        except Exception as e:
+            logger.error(f"[Groq] ❌ Key {idx} error: {type(e).__name__}: {e}")
+            continue
+    
+    logger.error(f"[Groq] 💀 All {len(GROQ_API_KEYS)} keys failed for model {model}")
     return None  # sab keys fail ho gayi
 
 
 def call_openrouter(model: str, system_prompt: str, user_message: str) -> str | None:
     """OpenRouter ko call karta hai, key fail hone par next key try karta hai."""
-    for key in OPENROUTER_API_KEYS:
+    for idx, key in enumerate(OPENROUTER_API_KEYS, 1):
         try:
+            logger.info(f"[OpenRouter] Trying key {idx}/{len(OPENROUTER_API_KEYS)} with model: {model}")
             response = requests.post(
                 url="https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
@@ -118,13 +135,19 @@ def call_openrouter(model: str, system_prompt: str, user_message: str) -> str | 
                 timeout=45,
             )
             if response.status_code == 200:
+                logger.info(f"[OpenRouter] ✅ Success with key {idx} and model {model}")
                 return response.json()["choices"][0]["message"]["content"].strip()
             else:
-                print(f"[OpenRouter] key ...{key[-4:]} failed with {model}: {response.status_code}")
+                logger.warning(f"[OpenRouter] ❌ Key {idx} failed with {model}: Status {response.status_code} - {response.text[:100]}")
                 continue
-        except Exception as e:
-            print(f"[OpenRouter] key ...{key[-4:]} error: {e}")
+        except requests.exceptions.Timeout:
+            logger.error(f"[OpenRouter] ⏱️ Key {idx} timeout after 45s")
             continue
+        except Exception as e:
+            logger.error(f"[OpenRouter] ❌ Key {idx} error: {type(e).__name__}: {e}")
+            continue
+    
+    logger.error(f"[OpenRouter] 💀 All {len(OPENROUTER_API_KEYS)} keys failed for model {model}")
     return None
 
 # ==================== ROUTER (the "brain") ====================
@@ -145,7 +168,7 @@ Agar delegate karna hai: "model_name": "qwen" ya "nemotron" do, aur "content": n
 (delegate hua model khud TASK INSTRUCTIONS follow karke answer banayega).
 
 STRICTLY sirf ye JSON return karo, kuch aur text nahi:
-{"model_name": "self" | "qwen" | "nemotron", "content": <string or null>}
+{{"model_name": "self" | "qwen" | "nemotron", "content": <string or null>}}
 
 ===== TASK INSTRUCTIONS =====
 {task_instructions}
@@ -161,42 +184,57 @@ def route_and_answer(task_instructions: str, user_message: str) -> str:
     3. model_name ke hisaab se qwen/nemotron ko seedha task_instructions ke saath call karta hai
     Return: final raw content (jo caller apne hisaab se parse karega - plain text ya JSON)
     """
+    logger.info(f"[Router] Starting routing for message: {user_message[:50]}...")
     wrapped_prompt = ROUTER_WRAPPER.format(task_instructions=task_instructions)
 
+    logger.info(f"[Router] Calling primary router: {GROQ_MODEL_ROUTER}")
     raw = call_groq(GROQ_MODEL_ROUTER, wrapped_prompt, user_message)
     used_fallback = False
+    
     if raw is None:
+        logger.warning(f"[Router] Primary router failed, trying fallback: {GROQ_MODEL_FALLBACK}")
         used_fallback = True
         raw = call_groq(GROQ_MODEL_FALLBACK, wrapped_prompt, user_message)
 
     if raw is None:
+        logger.error("[Router] 💀 Both primary and fallback routers failed!")
         return json.dumps({"reply": "Sorry bhai, Groq ke saare router models (120B aur 20B fallback dono) fail ho gaye. Keys/limits check kar."})
 
     try:
         cleaned = raw.replace("```json", "").replace("```", "").strip()
         decision = json.loads(cleaned)
-    except Exception:
+        logger.info(f"[Router] Decision received: {decision}")
+    except Exception as e:
         # Router ne JSON nahi diya, treat as direct self-answer
+        logger.warning(f"[Router] Failed to parse JSON, treating as direct answer. Error: {e}")
         return raw
 
     model_name = decision.get("model_name", "self")
     content = decision.get("content")
 
     if model_name == "self" and content:
+        logger.info("[Router] ✅ Router chose to answer directly (self)")
         return content
 
     elif model_name == "qwen":
+        logger.info(f"[Router] 🔄 Delegating to Qwen model: {GROQ_MODEL_QWEN}")
         qwen_result = call_groq(GROQ_MODEL_QWEN, task_instructions, user_message)
         if qwen_result is None:
-            return content or raw  # agar qwen fail ho jaye to jo bhi router se mila wahi de do
+            logger.error("[Router] Qwen delegation failed, returning router content")
+            return content or raw
+        logger.info("[Router] ✅ Qwen delegation successful")
         return qwen_result
 
     elif model_name == "nemotron":
+        logger.info(f"[Router] 🔄 Delegating to Nemotron model: {OPENROUTER_MODEL_NEMOTRON}")
         nemotron_result = call_openrouter(OPENROUTER_MODEL_NEMOTRON, task_instructions, user_message)
         if nemotron_result is None:
+            logger.error("[Router] Nemotron delegation failed, returning router content")
             return content or raw
+        logger.info("[Router] ✅ Nemotron delegation successful")
         return nemotron_result
 
+    logger.warning(f"[Router] Unknown model_name: {model_name}, returning raw content")
     return content or raw
 
 # ==================== TASK INSTRUCTIONS (per command) ====================
@@ -251,6 +289,8 @@ async def execute_action(ctx: commands.Context, action_data: dict):
     action = action_data.get("action")
     params = action_data.get("params", {})
     guild = ctx.guild
+    
+    logger.info(f"[Action] Executing {action} with params: {params}")
 
     try:
         if action == "create_channel":
@@ -340,67 +380,103 @@ async def execute_action(ctx: commands.Context, action_data: dict):
         elif action == "chat_reply":
             pass
 
+        logger.info(f"[Action] ✅ Successfully executed {action}")
         await ctx.send(action_data.get("reply", "Done ✅"))
 
-    except discord.Forbidden:
+    except discord.Forbidden as e:
+        logger.error(f"[Action] Permission denied for {action}: {e}")
         await ctx.send("❌ Mere paas is action ke liye permission nahi hai. Bot role ko upar move kar server settings me.")
     except Exception as e:
-        await ctx.send(f"❌ Error aaya: {e}")
-
-async def safe_send(ctx: commands.Context, text: str):
-    """Discord ke 2000-char limit aur empty message issue se bachata hai."""
-    if not text or not text.strip():
-        text = "⚠️ Model se khaali response aaya, dobara try kar."
-    for i in range(0, len(text), 1900):  # 1900 rakha hai 2000 se thoda kam, safe margin ke liye
-        await ctx.send(text[i:i + 1900])
+        logger.error(f"[Action] Failed to execute {action}: {e}", exc_info=True)
+        await ctx.send(f"❌ Error aaya: {type(e).__name__}: {str(e)}")
 
 # ==================== COMMANDS ====================
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot online hai: {bot.user}")
+    logger.info(f"✅ Bot online hai: {bot.user}")
+    logger.info(f"📊 Servers: {len(bot.guilds)}, Users: {len(bot.users)}")
+    logger.info(f"🔑 Groq keys loaded: {len(GROQ_API_KEYS)}")
+    logger.info(f"🔑 OpenRouter keys loaded: {len(OPENROUTER_API_KEYS)}")
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error):
+    """Global error handler for all commands"""
+    if isinstance(error, commands.CommandNotFound):
+        return  # Ignore invalid commands
+    
+    if isinstance(error, commands.MissingPermissions):
+        logger.warning(f"[Command] Permission denied for {ctx.author} in {ctx.guild}: {error}")
+        await ctx.send("❌ Tumhare paas is command ke liye permission nahi hai.")
+        return
+    
+    if isinstance(error, commands.CommandInvokeError):
+        logger.error(f"[Command] Error in {ctx.command}: {error.original}", exc_info=error.original)
+        await ctx.send(f"❌ Command execute karte waqt error aaya: {type(error.original).__name__}")
+        return
+    
+    logger.error(f"[Command] Unhandled error in {ctx.command}: {error}", exc_info=error)
 
 @bot.command()
 async def do(ctx: commands.Context, *, instruction: str):
     """Admin-only: natural language instruction se server control karo."""
     if not ctx.author.guild_permissions.administrator:
+        logger.warning(f"[!do] Unauthorized access attempt by {ctx.author} in {ctx.guild}")
         await ctx.send("❌ Ye command sirf admins use kar sakte hain.")
         return
 
-    try:
-        async with ctx.typing():
+    logger.info(f"[!do] Admin command from {ctx.author} in {ctx.guild}: {instruction}")
+    async with ctx.typing():
+        try:
             raw_result = route_and_answer(ADMIN_TASK_INSTRUCTIONS, instruction)
-            try:
-                cleaned = raw_result.replace("```json", "").replace("```", "").strip()
-                action_data = json.loads(cleaned)
-            except Exception:
-                await safe_send(ctx, raw_result)
-                return
+            cleaned = raw_result.replace("```json", "").replace("```", "").strip()
+            action_data = json.loads(cleaned)
+            logger.info(f"[!do] Parsed action: {action_data.get('action', 'unknown')}")
             await execute_action(ctx, action_data)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()  # Render logs me poora error dikhega
-        await safe_send(ctx, f"❌ Unexpected error: {e}")
+        except json.JSONDecodeError as e:
+            logger.error(f"[!do] JSON parse error: {e}. Raw result: {raw_result}")
+            await ctx.send(raw_result)
+        except Exception as e:
+            logger.error(f"[!do] Unexpected error: {e}", exc_info=True)
+            await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)}")
 
 @bot.command()
 async def ai(ctx: commands.Context, *, message: str):
     """Sabke liye: normal AI chat."""
-    try:
-        async with ctx.typing():
+    logger.info(f"[!ai] Message from {ctx.author} in {ctx.guild}: {message[:50]}...")
+    async with ctx.typing():
+        try:
             result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message)
-            await safe_send(ctx, result)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()  # Render logs me poora error dikhega
-        await safe_send(ctx, f"❌ Unexpected error: {e}")
+            logger.info(f"[!ai] Response generated, length: {len(result)} chars")
+            await ctx.send(result)
+        except Exception as e:
+            logger.error(f"[!ai] Error: {e}", exc_info=True)
+            await ctx.send(f"❌ Error aaya bhai: {type(e).__name__}")
 
 # ==================== START BOT ====================
 
 if __name__ == "__main__":
     # Keep-alive server start karo (Render ke liye)
-    keep_alive()
-    print("🌐 Keep-alive web server started!")
-
+    try:
+        keep_alive()
+        logger.info("🌐 Keep-alive web server started!")
+    except Exception as e:
+        logger.error(f"⚠️ Keep-alive server failed to start: {e}")
+    
     # Discord bot start karo
-    bot.run(DISCORD_BOT_TOKEN)
+    try:
+        if not DISCORD_BOT_TOKEN:
+            logger.error("❌ DISCORD_BOT_TOKEN not found in environment!")
+            exit(1)
+        
+        if not GROQ_API_KEYS or GROQ_API_KEYS == ['']:
+            logger.error("❌ GROQ_API_KEYS not found in environment!")
+            exit(1)
+            
+        logger.info("🚀 Starting Discord bot...")
+        bot.run(DISCORD_BOT_TOKEN)
+    except discord.LoginFailure:
+        logger.error("❌ Invalid Discord bot token!")
+    except Exception as e:
+        logger.error(f"❌ Bot crashed: {e}", exc_info=True)
 
