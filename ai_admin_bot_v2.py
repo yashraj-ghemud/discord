@@ -9,7 +9,7 @@ Delegate options (120B khud decide karta hai):
 Fallback: agar 120B fail ho jaye (rate limit / down) -> GPT-OSS-20B (Groq) router ka kaam sambhalta hai
 
 SETUP:
-1. pip install discord.py requests python-dotenv
+1. pip install discord.py requests python-dotenv flask
 2. .env file me apne tokens/keys daal
 3. python ai_admin_bot_v2.py
 """
@@ -20,7 +20,27 @@ import requests
 import json
 import datetime
 import os
+import threading
 from dotenv import load_dotenv
+from flask import Flask
+
+# ==================== KEEP-ALIVE WEB SERVER (Render Web Service ke liye) ====================
+
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "Bot zinda hai aur chal raha hai! ✅"
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+def keep_alive():
+    """Background thread me web server start karta hai"""
+    t = threading.Thread(target=run_web_server)
+    t.daemon = True  # Bot band ho to server bhi band ho jaye
+    t.start()
 
 # Load environment variables from .env file
 load_dotenv()
@@ -357,4 +377,14 @@ async def ai(ctx: commands.Context, *, message: str):
         result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message)
         await ctx.send(result)
 
-bot.run(DISCORD_BOT_TOKEN)
+# ==================== START BOT ====================
+
+if __name__ == "__main__":
+    # Keep-alive server start karo (Render ke liye)
+    keep_alive()
+    print("🌐 Keep-alive web server started!")
+    
+    # Discord bot start karo
+    keep_alive()
+    bot.run(DISCORD_BOT_TOKEN)
+
