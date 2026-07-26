@@ -252,16 +252,17 @@ Sirf JSON return kar, koi extra text nahi.
 Available actions:
 1. create_channel -> params: {"name": str, "type": "text" or "voice"}
 2. delete_channel -> params: {"name": str}
-3. create_role -> params: {"name": str, "color": "hex like #ff0000 (optional)"}
-4. assign_role -> params: {"member": "username", "role": "role name"}
-5. remove_role -> params: {"member": "username", "role": "role name"}
-6. kick -> params: {"member": "username", "reason": str}
-7. ban -> params: {"member": "username", "reason": str}
-8. timeout -> params: {"member": "username", "minutes": int, "reason": str}
-9. nickname -> params: {"member": "username", "new_nick": str}
-10. purge -> params: {"count": int}
-11. announce -> params: {"channel": "channel name", "message": str}
-12. chat_reply -> params: {}   (jab user sirf baat kar raha ho, koi action nahi chahiye)
+3. set_channel_topic -> params: {"name": str, "topic": str}
+4. create_role -> params: {"name": str, "color": "hex like #ff0000 (optional)"}
+5. assign_role -> params: {"member": "username", "role": "role name"}
+6. remove_role -> params: {"member": "username", "role": "role name"}
+7. kick -> params: {"member": "username", "reason": str}
+8. ban -> params: {"member": "username", "reason": str}
+9. timeout -> params: {"member": "username", "minutes": int, "reason": str}
+10. nickname -> params: {"member": "username", "new_nick": str}
+11. purge -> params: {"count": int}
+12. announce -> params: {"channel": "channel name", "message": str}
+13. chat_reply -> params: {}   (jab user sirf baat kar raha ho, koi action nahi chahiye)
 
 Format:
 {"action": "...", "params": {...}, "reply": "user ko dikhne wala short confirmation message in Hinglish"}
@@ -376,6 +377,18 @@ async def execute_action(ctx: commands.Context, action_data: dict):
             ch = await find_channel(guild, params["channel"])
             if ch:
                 await ch.send(params["message"])
+            else:
+                await ctx.send("Channel nahi mila.")
+                return
+
+        elif action == "set_channel_topic":
+            ch = await find_channel(guild, params["name"])
+            if ch:
+                if isinstance(ch, discord.TextChannel):
+                    await ch.edit(topic=params["topic"])
+                else:
+                    await ctx.send("❌ Ye channel text channel nahi hai, topic sirf text channels me set hota hai.")
+                    return
             else:
                 await ctx.send("Channel nahi mila.")
                 return
