@@ -239,24 +239,8 @@ def route_and_answer(task_instructions: str, user_message: str) -> str:
 
 # ==================== TASK INSTRUCTIONS (per command) ====================
 
-CHAT_TASK_INSTRUCTIONS = """Tu ek friendly Discord AI assistant hai. User se Hinglish me baat karo.
-
-IMPORTANT: Pehle analyze kar ki user MESSAGE chahta hai ya FILE chahta hai.
-
-Agar user koi FILE/CODE/DOCUMENT maang raha hai (like code, script, program, document, etc.):
-→ MANDATORY JSON format use kar:
-```json
-{
-  "type": "file",
-  "filename": "appropriate_name.extension",
-  "content": "complete file content"
-}
-```
-
-Agar user normal CONVERSATION/CHAT kar raha hai:
-→ Plain text me naturally reply do (no JSON).
-
-Tu khud decide kar user ke prompt se ki file expected hai ya message."""
+CHAT_TASK_INSTRUCTIONS = """Tu ek friendly Discord AI assistant hai. User se Hinglish me normal
+baat karo, seedha plain text me jawab do (koi JSON nahi, sirf normal reply text)."""
 
 ADMIN_TASK_INSTRUCTIONS = """Tu ek Discord server ka AI admin assistant hai. User Hinglish/Hindi/English me
 instruction dega. Us instruction ko samajh kar STRICTLY neeche diye JSON format me ek action return kar.
@@ -465,108 +449,14 @@ async def do(ctx: commands.Context, *, instruction: str):
 
 @bot.command()
 async def ai(ctx: commands.Context, *, message: str):
-    """Sabke liye: normal AI chat aur file generation."""
+    """Sabke liye: normal AI chat."""
     logger.info(f"[!ai] Message from {ctx.author} in {ctx.guild}: {message[:50]}...")
     async with ctx.typing():
         try:
             result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message)
             logger.info(f"[!ai] Response generated, length: {len(result)} chars")
             
-            # Check if response is a file creation request (JSON format)
-            try:
-                cleaned = result.replace("```json", "").replace("```", "").strip()
-                file_data = json.loads(cleaned)
-                
-                if file_data.get("type") == "file" and "filename" in file_data and "content" in file_data:
-                    filename = file_data["filename"]
-                    content = file_data["content"]
-                    
-                    logger.info(f"[!ai] Creating file: {filename}, size: {len(content)} bytes")
-                    
-                    # Create temp file and send as attachment
-                    import tempfile
-                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_' + filename, encoding='utf-8') as tmp:
-                        tmp.write(content)
-                        tmp_path = tmp.name
-                    
-                    try:
-                        await ctx.send(
-                            f"✅ File ready hai bhai: `{filename}`",
-                            file=discord.File(tmp_path, filename=filename)
-                        )
-                        logger.info(f"[!ai] ✅ File sent successfully: {filename}")
-                    finally:
-                        # Cleanup temp file
-                        import os as os_module
-                        try:
-                            os_module.unlink(tmp_path)
-                        except:
-                            pass
-                    return
-            except (json.JSONDecodeError, KeyError):
-                # Not JSON - check for code blocks (fallback detection)
-                logger.info("[!ai] Not JSON format, checking for code blocks...")
-                
-                # Check if user asked for a file/code
-                file_keywords = ["code de", "code bana", "file bana", "script de", "program de", "program bana",
-                                "game", "calculator", "website", "page bana", ".py", ".html", 
-                                ".js", ".txt", ".md", "create file", "html page", "python code"]
-                
-                user_wants_file = any(keyword in message.lower() for keyword in file_keywords)
-                
-                # Check if response has code blocks
-                if user_wants_file and ("```" in result):
-                    logger.info("[!ai] User wants file + code block detected, auto-creating file")
-                    
-                    # Extract code from code block
-                    import re
-                    code_match = re.search(r'```(\w+)?\n(.*?)```', result, re.DOTALL)
-                    if code_match:
-                        lang = code_match.group(1) or "txt"
-                        content = code_match.group(2).strip()
-                        
-                        # Auto-detect filename from language or user message
-                        if "python" in message.lower() or lang == "python" or lang == "py":
-                            filename = "script.py"
-                        elif "html" in message.lower() or lang == "html":
-                            filename = "index.html"
-                        elif "javascript" in message.lower() or lang == "javascript" or lang == "js":
-                            filename = "script.js"
-                        elif "css" in message.lower() or lang == "css":
-                            filename = "style.css"
-                        elif "game" in message.lower():
-                            if "snake" in message.lower():
-                                filename = "snake_game.py" if lang in ["python", "py"] else "snake_game.html"
-                            else:
-                                filename = "game.py" if lang in ["python", "py"] else "game.html"
-                        elif "calculator" in message.lower():
-                            filename = "calculator.py" if lang in ["python", "py"] else "calculator.html"
-                        else:
-                            filename = f"code.{lang}" if lang != "txt" else "file.txt"
-                        
-                        logger.info(f"[!ai] Auto-detected file: {filename}")
-                        
-                        # Create and send file
-                        import tempfile
-                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_' + filename, encoding='utf-8') as tmp:
-                            tmp.write(content)
-                            tmp_path = tmp.name
-                        
-                        try:
-                            await ctx.send(
-                                f"✅ File ready hai bhai: `{filename}`",
-                                file=discord.File(tmp_path, filename=filename)
-                            )
-                            logger.info(f"[!ai] ✅ Auto-detected file sent successfully: {filename}")
-                            return
-                        finally:
-                            import os as os_module
-                            try:
-                                os_module.unlink(tmp_path)
-                            except:
-                                pass
-            
-            # Normal text response - Discord ka limit 2000 chars hai
+            # Discord ka limit 2000 chars hai
             if len(result) <= 2000:
                 await ctx.send(result)
             else:
@@ -596,7 +486,7 @@ async def ai(ctx: commands.Context, *, message: str):
             await ctx.send(f"❌ Discord error: Response bahut bada hai ya rate limit ho gaya. Error code: {e.status}")
         except Exception as e:
             logger.error(f"[!ai] Error: {e}", exc_info=True)
-            await ctx.send(f"❌ Error aaya bhai: {type(e).__name__}: {str(e)[:100]}")
+            await ctx.send(f"❌ Error aaya bhai: {type(e).__name__}")
 
 # ==================== START BOT ====================
 
