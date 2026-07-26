@@ -69,6 +69,7 @@ GROQ_MODEL_ROUTER = os.getenv("GROQ_MODEL_ROUTER", "openai/gpt-oss-120b")
 GROQ_MODEL_FALLBACK = os.getenv("GROQ_MODEL_FALLBACK", "openai/gpt-oss-20b")
 GROQ_MODEL_QWEN = os.getenv("GROQ_MODEL_QWEN", "qwen/qwen3.6-27b")
 OPENROUTER_MODEL_NEMOTRON = os.getenv("OPENROUTER_MODEL_NEMOTRON", "nvidia/nemotron-3-ultra-550b-a55b:free")
+OPENROUTER_MODEL_IMAGE_GEN = os.getenv("OPENROUTER_MODEL_IMAGE_GEN", "bytedance-seed/seedream-4.5:free")
 
 COMMAND_PREFIX = os.getenv("COMMAND_PREFIX", "!")
 
@@ -158,17 +159,18 @@ ROUTER_WRAPPER = """Tera kaam DO hisso me hai:
 2) Decide karna ki ye content KHUD dega ya kisi dusre model ko DELEGATE karega.
 
 Delegate options:
-- "qwen"      -> jab task alag perspective ya general reasoning ka ho
-- "nemotron"  -> SIRF jab task bahut zyada complex/heavy reasoning wala ho (jb teko lage ye mushkil task isse dena chahiye)
+- "qwen"       -> jab task alag perspective ya general reasoning ka ho
+- "nemotron"   -> SIRF jab task bahut zyada complex/heavy reasoning wala ho (jb teko lage ye mushkil task isse dena chahiye)
+- "imagegen"   -> SIRF jab user IMAGE/PICTURE generate karne ko bole (keywords: "image", "picture", "photo", "generate image", "draw", "create picture", "banaa photo")
 
 Agar khud dena hai: "model_name": "self" aur "content" field me poora final answer/action bharo
 (TASK INSTRUCTIONS ke format ko follow karte hue).
 
-Agar delegate karna hai: "model_name": "qwen" ya "nemotron" do, aur "content": null rakho
+Agar delegate karna hai: "model_name": "qwen" ya "nemotron" ya "imagegen" do, aur "content": null rakho
 (delegate hua model khud TASK INSTRUCTIONS follow karke answer banayega).
 
 STRICTLY sirf ye JSON return karo, kuch aur text nahi:
-{{"model_name": "self" | "qwen" | "nemotron", "content": <string or null>}}
+{{"model_name": "self" | "qwen" | "nemotron" | "imagegen", "content": <string or null>}}
 
 ===== TASK INSTRUCTIONS =====
 {task_instructions}
@@ -233,6 +235,15 @@ def route_and_answer(task_instructions: str, user_message: str) -> str:
             return content or raw
         logger.info("[Router] ✅ Nemotron delegation successful")
         return nemotron_result
+
+    elif model_name == "imagegen":
+        logger.info(f"[Router] 🎨 Delegating to Image Generation model: {OPENROUTER_MODEL_IMAGE_GEN}")
+        imagegen_result = call_openrouter(OPENROUTER_MODEL_IMAGE_GEN, task_instructions, user_message)
+        if imagegen_result is None:
+            logger.error("[Router] Image generation failed, returning router content")
+            return content or raw
+        logger.info("[Router] ✅ Image generation successful")
+        return imagegen_result
 
     logger.warning(f"[Router] Unknown model_name: {model_name}, returning raw content")
     return content or raw
