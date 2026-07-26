@@ -15,7 +15,7 @@ SETUP:
 """
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import requests
 import json
 import datetime
@@ -63,6 +63,9 @@ GROQ_API_KEYS = os.getenv("GROQ_API_KEYS", "").split(",")
 
 OPENROUTER_API_KEYS = os.getenv("OPENROUTER_API_KEYS", "").split(",")
 
+# Daily post channel ID
+DAILY_POST_CHANNEL_ID = int(os.getenv("DAILY_POST_CHANNEL_ID", "0"))
+
 # Model IDs — inko Groq console (console.groq.com) aur openrouter.ai/models pe
 # jaake exact naam se confirm kar lena, kabhi kabhi naming thodi change ho jaati hai
 GROQ_MODEL_ROUTER = os.getenv("GROQ_MODEL_ROUTER", "openai/gpt-oss-120b")
@@ -80,6 +83,17 @@ intents.members = True
 intents.moderation = True
 
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
+
+# ==================== DAILY TOPICS (Scheduled Posts) ====================
+
+DAILY_TOPICS = [
+    "Coding/DSA tips",
+    "AI/Tech news",
+    "Android dev tricks",
+    "Random tech facts",
+    "Motivational quote",
+]
+_topic_index = 0
 
 # ==================== LOW-LEVEL API CALLERS (with key rotation) ====================
 
@@ -149,6 +163,53 @@ def call_openrouter(model: str, system_prompt: str, user_message: str) -> str | 
     
     logger.error(f"[OpenRouter] 💀 All {len(OPENROUTER_API_KEYS)} keys failed for model {model}")
     return None
+
+# ==================== SEARCH & COMPOSE (for Daily Posts) ====================
+
+def call_groq_with_search(topic: str) -> str | None:
+    """GPT-OSS-120B ko browser search ke saath call karta hai, latest info fetch karne ke liye."""
+    for idx, key in enumerate(GROQ_API_KEYS, 1):
+        try:
+            logger.info(f"[Groq Search] Trying key {idx} for topic: {topic}")
+            response = requests.post(
+                url="https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={
+                    "model": GROQ_MODEL_ROUTER,
+                    "messages": [
+                        {"role": "system", "content": (
+                            f"Tu ek research assistant hai. Topic '{topic}' pe internet search kar ke "
+                            f"latest, accurate aur interesting info nikaal. Sirf short bullet-point "
+                            f"research notes de, final post mat likh."
+                        )},
+                        {"role": "user", "content": f"Topic: {topic}. Aaj ke liye kuch naya aur useful dhoond."},
+                    ],
+                    "tools": [{"type": "browser_search"}],  # Groq's browser search tool
+                },
+                timeout=45,
+            )
+            if response.status_code == 200:
+                logger.info(f"[Groq Search] ✅ Success with key {idx}")
+                return response.json()["choices"][0]["message"]["content"].strip()
+            else:
+                logger.warning(f"[Groq Search] ❌ Key {idx} failed: {response.status_code} - {response.text[:200]}")
+                continue
+        except Exception as e:
+            logger.error(f"[Groq Search] ❌ Key {idx} error: {e}")
+            continue
+    
+    logger.error(f"[Groq Search] 💀 All keys failed for topic: {topic}")
+    return None
+
+def call_nemotron_compose(topic: str, research_notes: str) -> str | None:
+    """Nemotron ko research notes deta hai, final polished Discord post likhwane ke liye."""
+    system_prompt = (
+        "Tu ek Discord community manager hai. Neeche diye gaye research notes ko padh kar "
+        "ek engaging, short, well-formatted Discord post bana (emojis thoda use kar sakta hai, "
+        "Hinglish tone rakh). Post directly usable hona chahiye, koi extra commentary nahi."
+    )
+    user_message = f"Topic: {topic}\n\nResearch Notes:\n{research_notes}"
+    return call_openrouter(OPENROUTER_MODEL_NEMOTRON, system_prompt, user_message)
 
 # ==================== ROUTER (the "brain") ====================
 
@@ -504,6 +565,54 @@ async def ai(ctx: commands.Context, *, message: str):
             logger.error(f"[!ai] Error: {e}", exc_info=True)
             await ctx.send(f"❌ Error aaya bhai: {type(e).__name__}")
 
+# ==================== SCHEDULED DAILY POST TASK ====================
+
+@tasks.loop(hours=1)
+async def daily_post_task():
+    """Har 1 ghante me ek post generate karke specified channel me bhejta hai."""
+    global _topic_index
+    
+    if DAILY_POST_CHANNEL_ID == 0:
+        logger.warning("⚠️ DAILY_POST_CHANNEL_ID set nahi hai, skip kar raha hoon.")
+        return
+    
+    channel = bot.get_channel(DAILY_POST_CHANNEL_ID)
+    if channel is None:
+        logger.error(f"⚠️ Channel nahi mila with ID: {DAILY_POST_CHANNEL_ID}")
+        return
+    
+    # Select topic (cyclic)
+    topic = DAILY_TOPICS[_topic_index % len(DAILY_TOPICS)]
+    _topic_index += 1
+    
+    logger.info(f"[Daily Post] Starting for topic: {topic}")
+    
+    # Step 1: Research with GPT-OSS-120B
+    research = call_groq_with_search(topic)
+    if not research:
+        logger.warning(f"[Daily Post] Research failed, using fallback for topic: {topic}")
+        research = f"General knowledge on: {topic}"
+    
+    # Step 2: Compose with Nemotron
+    post = call_nemotron_compose(topic, research)
+    if not post:
+        logger.error(f"[Daily Post] Compose failed for topic: {topic}")
+        post = f"📌 Aaj ka topic tha **{topic}**, lekin content generate nahi ho paya, next hour try karenge."
+    
+    # Step 3: Send to channel (split if needed)
+    try:
+        for i in range(0, len(post), 1900):
+            await channel.send(post[i:i + 1900])
+        logger.info(f"[Daily Post] ✅ Posted successfully: {topic}")
+    except Exception as e:
+        logger.error(f"[Daily Post] ❌ Failed to send: {e}")
+
+@daily_post_task.before_loop
+async def before_daily_post():
+    """Wait for bot to be ready before starting the loop."""
+    await bot.wait_until_ready()
+    logger.info("[Daily Post] Task initialized, will run every 1 hour")
+
 # ==================== START BOT ====================
 
 if __name__ == "__main__":
@@ -523,6 +632,10 @@ if __name__ == "__main__":
         if not GROQ_API_KEYS or GROQ_API_KEYS == ['']:
             logger.error("❌ GROQ_API_KEYS not found in environment!")
             exit(1)
+        
+        # Start scheduled task
+        daily_post_task.start()
+        logger.info("⏰ Daily post task started!")
             
         logger.info("🚀 Starting Discord bot...")
         bot.run(DISCORD_BOT_TOKEN)
