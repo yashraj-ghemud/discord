@@ -240,7 +240,22 @@ def route_and_answer(task_instructions: str, user_message: str) -> str:
 # ==================== TASK INSTRUCTIONS (per command) ====================
 
 CHAT_TASK_INSTRUCTIONS = """Tu ek friendly Discord AI assistant hai. User se Hinglish me normal
-baat karo, seedha plain text me jawab do (koi JSON nahi, sirf normal reply text)."""
+baat karo.
+
+IMPORTANT: Agar user koi FILE maang raha hai (code file, document, etc.), to STRICTLY is JSON format me respond kar:
+{
+  "type": "file",
+  "filename": "exact_filename_with_extension",
+  "content": "complete file content here"
+}
+
+Examples of file requests:
+- "snake game ka code de"
+- "HTML page bana do"
+- "Python script chahiye"
+- "README file create kar"
+
+Agar file request NAHI hai, to seedha plain text me jawab do (koi JSON nahi)."""
 
 ADMIN_TASK_INSTRUCTIONS = """Tu ek Discord server ka AI admin assistant hai. User Hinglish/Hindi/English me
 instruction dega. Us instruction ko samajh kar STRICTLY neeche diye JSON format me ek action return kar.
@@ -434,24 +449,94 @@ async def do(ctx: commands.Context, *, instruction: str):
             logger.info(f"[!do] Parsed action: {action_data.get('action', 'unknown')}")
             await execute_action(ctx, action_data)
         except json.JSONDecodeError as e:
-            logger.error(f"[!do] JSON parse error: {e}. Raw result: {raw_result}")
-            await ctx.send(raw_result)
+            logger.error(f"[!do] JSON parse error: {e}. Raw result: {raw_result[:200]}")
+            # Check if raw_result is too long
+            if len(raw_result) <= 2000:
+                await ctx.send(raw_result)
+            else:
+                await ctx.send(f"⚠️ Response bahut bada hai. Showing first 1900 chars:\n{raw_result[:1900]}")
+        except discord.HTTPException as e:
+            logger.error(f"[!do] Discord HTTPException: {e.status} - {e.text}")
+            await ctx.send(f"❌ Discord error: {e.status}")
         except Exception as e:
             logger.error(f"[!do] Unexpected error: {e}", exc_info=True)
-            await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)}")
+            await ctx.send(f"❌ Error: {type(e).__name__}: {str(e)[:100]}")
 
 @bot.command()
 async def ai(ctx: commands.Context, *, message: str):
-    """Sabke liye: normal AI chat."""
+    """Sabke liye: normal AI chat aur file generation."""
     logger.info(f"[!ai] Message from {ctx.author} in {ctx.guild}: {message[:50]}...")
     async with ctx.typing():
         try:
             result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message)
             logger.info(f"[!ai] Response generated, length: {len(result)} chars")
-            await ctx.send(result)
+            
+            # Check if response is a file creation request (JSON format)
+            try:
+                cleaned = result.replace("```json", "").replace("```", "").strip()
+                file_data = json.loads(cleaned)
+                
+                if file_data.get("type") == "file" and "filename" in file_data and "content" in file_data:
+                    filename = file_data["filename"]
+                    content = file_data["content"]
+                    
+                    logger.info(f"[!ai] Creating file: {filename}, size: {len(content)} bytes")
+                    
+                    # Create temp file and send as attachment
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_' + filename, encoding='utf-8') as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    
+                    try:
+                        await ctx.send(
+                            f"✅ File ready hai bhai: `{filename}`",
+                            file=discord.File(tmp_path, filename=filename)
+                        )
+                        logger.info(f"[!ai] ✅ File sent successfully: {filename}")
+                    finally:
+                        # Cleanup temp file
+                        import os as os_module
+                        try:
+                            os_module.unlink(tmp_path)
+                        except:
+                            pass
+                    return
+            except (json.JSONDecodeError, KeyError):
+                # Not a file response, continue with normal text handling
+                pass
+            
+            # Normal text response - Discord ka limit 2000 chars hai
+            if len(result) <= 2000:
+                await ctx.send(result)
+            else:
+                # Split into chunks of 1900 chars (safe margin)
+                chunks = []
+                while result:
+                    if len(result) <= 1900:
+                        chunks.append(result)
+                        break
+                    
+                    # Try to split at newline or space
+                    split_pos = result[:1900].rfind('\n')
+                    if split_pos == -1:
+                        split_pos = result[:1900].rfind(' ')
+                    if split_pos == -1:
+                        split_pos = 1900
+                    
+                    chunks.append(result[:split_pos])
+                    result = result[split_pos:].lstrip()
+                
+                logger.info(f"[!ai] Response split into {len(chunks)} chunks")
+                for idx, chunk in enumerate(chunks, 1):
+                    await ctx.send(f"**[Part {idx}/{len(chunks)}]**\n{chunk}")
+                    
+        except discord.HTTPException as e:
+            logger.error(f"[!ai] Discord HTTPException: {e.status} - {e.text}", exc_info=True)
+            await ctx.send(f"❌ Discord error: Response bahut bada hai ya rate limit ho gaya. Error code: {e.status}")
         except Exception as e:
             logger.error(f"[!ai] Error: {e}", exc_info=True)
-            await ctx.send(f"❌ Error aaya bhai: {type(e).__name__}")
+            await ctx.send(f"❌ Error aaya bhai: {type(e).__name__}: {str(e)[:100]}")
 
 # ==================== START BOT ====================
 
