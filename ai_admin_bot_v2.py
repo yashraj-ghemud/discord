@@ -516,6 +516,11 @@ async def on_ready():
     logger.info(f"📊 Servers: {len(bot.guilds)}, Users: {len(bot.users)}")
     logger.info(f"🔑 Groq keys loaded: {len(GROQ_API_KEYS)}")
     logger.info(f"🔑 OpenRouter keys loaded: {len(OPENROUTER_API_KEYS)}")
+    
+    # Start scheduled task after bot is ready
+    if not daily_post_task.is_running():
+        daily_post_task.start()
+        logger.info("⏰ Daily post task started!")
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
@@ -673,10 +678,6 @@ if __name__ == "__main__":
         if not GROQ_API_KEYS or GROQ_API_KEYS == ['']:
             logger.error("❌ GROQ_API_KEYS not found in environment!")
             exit(1)
-        
-        # Start scheduled task
-        daily_post_task.start()
-        logger.info("⏰ Daily post task started!")
             
         logger.info("🚀 Starting Discord bot...")
         bot.run(DISCORD_BOT_TOKEN)
