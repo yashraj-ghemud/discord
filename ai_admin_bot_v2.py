@@ -159,7 +159,7 @@ ROUTER_WRAPPER = """Tera kaam DO hisso me hai:
 
 Delegate options:
 - "qwen"      -> jab task alag perspective ya general reasoning ka ho
-- "nemotron"  -> SIRF jab task bahut zyada complex/heavy reasoning wala ho (jaise deep analysis, lambi coding problem, multi-step logic)
+- "nemotron"  -> SIRF jab task bahut zyada complex/heavy reasoning wala ho (jb teko lage ye mushkil task isse dena chahiye)
 
 Agar khud dena hai: "model_name": "self" aur "content" field me poora final answer/action bharo
 (TASK INSTRUCTIONS ke format ko follow karte hue).
@@ -239,23 +239,24 @@ def route_and_answer(task_instructions: str, user_message: str) -> str:
 
 # ==================== TASK INSTRUCTIONS (per command) ====================
 
-CHAT_TASK_INSTRUCTIONS = """Tu ek friendly Discord AI assistant hai. User se Hinglish me normal
-baat karo.
+CHAT_TASK_INSTRUCTIONS = """Tu ek friendly Discord AI assistant hai. User se Hinglish me baat karo.
 
-IMPORTANT: Agar user koi FILE maang raha hai (code file, document, etc.), to STRICTLY is JSON format me respond kar:
+IMPORTANT: Pehle analyze kar ki user MESSAGE chahta hai ya FILE chahta hai.
+
+Agar user koi FILE/CODE/DOCUMENT maang raha hai (like code, script, program, document, etc.):
+→ MANDATORY JSON format use kar:
+```json
 {
   "type": "file",
-  "filename": "exact_filename_with_extension",
-  "content": "complete file content here"
+  "filename": "appropriate_name.extension",
+  "content": "complete file content"
 }
+```
 
-Examples of file requests:
-- "snake game ka code de"
-- "HTML page bana do"
-- "Python script chahiye"
-- "README file create kar"
+Agar user normal CONVERSATION/CHAT kar raha hai:
+→ Plain text me naturally reply do (no JSON).
 
-Agar file request NAHI hai, to seedha plain text me jawab do (koi JSON nahi)."""
+Tu khud decide kar user ke prompt se ki file expected hai ya message."""
 
 ADMIN_TASK_INSTRUCTIONS = """Tu ek Discord server ka AI admin assistant hai. User Hinglish/Hindi/English me
 instruction dega. Us instruction ko samajh kar STRICTLY neeche diye JSON format me ek action return kar.
@@ -503,8 +504,67 @@ async def ai(ctx: commands.Context, *, message: str):
                             pass
                     return
             except (json.JSONDecodeError, KeyError):
-                # Not a file response, continue with normal text handling
-                pass
+                # Not JSON - check for code blocks (fallback detection)
+                logger.info("[!ai] Not JSON format, checking for code blocks...")
+                
+                # Check if user asked for a file/code
+                file_keywords = ["code de", "code bana", "file bana", "script de", "program de", "program bana",
+                                "game", "calculator", "website", "page bana", ".py", ".html", 
+                                ".js", ".txt", ".md", "create file", "html page", "python code"]
+                
+                user_wants_file = any(keyword in message.lower() for keyword in file_keywords)
+                
+                # Check if response has code blocks
+                if user_wants_file and ("```" in result):
+                    logger.info("[!ai] User wants file + code block detected, auto-creating file")
+                    
+                    # Extract code from code block
+                    import re
+                    code_match = re.search(r'```(\w+)?\n(.*?)```', result, re.DOTALL)
+                    if code_match:
+                        lang = code_match.group(1) or "txt"
+                        content = code_match.group(2).strip()
+                        
+                        # Auto-detect filename from language or user message
+                        if "python" in message.lower() or lang == "python" or lang == "py":
+                            filename = "script.py"
+                        elif "html" in message.lower() or lang == "html":
+                            filename = "index.html"
+                        elif "javascript" in message.lower() or lang == "javascript" or lang == "js":
+                            filename = "script.js"
+                        elif "css" in message.lower() or lang == "css":
+                            filename = "style.css"
+                        elif "game" in message.lower():
+                            if "snake" in message.lower():
+                                filename = "snake_game.py" if lang in ["python", "py"] else "snake_game.html"
+                            else:
+                                filename = "game.py" if lang in ["python", "py"] else "game.html"
+                        elif "calculator" in message.lower():
+                            filename = "calculator.py" if lang in ["python", "py"] else "calculator.html"
+                        else:
+                            filename = f"code.{lang}" if lang != "txt" else "file.txt"
+                        
+                        logger.info(f"[!ai] Auto-detected file: {filename}")
+                        
+                        # Create and send file
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='_' + filename, encoding='utf-8') as tmp:
+                            tmp.write(content)
+                            tmp_path = tmp.name
+                        
+                        try:
+                            await ctx.send(
+                                f"✅ File ready hai bhai: `{filename}`",
+                                file=discord.File(tmp_path, filename=filename)
+                            )
+                            logger.info(f"[!ai] ✅ Auto-detected file sent successfully: {filename}")
+                            return
+                        finally:
+                            import os as os_module
+                            try:
+                                os_module.unlink(tmp_path)
+                            except:
+                                pass
             
             # Normal text response - Discord ka limit 2000 chars hai
             if len(result) <= 2000:
