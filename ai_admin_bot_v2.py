@@ -323,7 +323,8 @@ Available actions:
 10. nickname -> params: {"member": "username", "new_nick": str}
 11. purge -> params: {"count": int}
 12. announce -> params: {"channel": "channel name", "message": str}
-13. chat_reply -> params: {}   (jab user sirf baat kar raha ho, koi action nahi chahiye)
+13. trigger_post -> params: {}   (jab user scheduled post manually trigger karna chahe)
+14. chat_reply -> params: {}   (jab user sirf baat kar raha ho, koi action nahi chahiye)
 
 Format:
 {"action": "...", "params": {...}, "reply": "user ko dikhne wala short confirmation message in Hinglish"}
@@ -453,6 +454,46 @@ async def execute_action(ctx: commands.Context, action_data: dict):
             else:
                 await ctx.send("Channel nahi mila.")
                 return
+
+        elif action == "trigger_post":
+            # Manually trigger the daily post
+            logger.info("[Action] Manually triggering daily post")
+            
+            if DAILY_POST_CHANNEL_ID == 0:
+                await ctx.send("❌ DAILY_POST_CHANNEL_ID set nahi hai configuration me.")
+                return
+            
+            channel = bot.get_channel(DAILY_POST_CHANNEL_ID)
+            if channel is None:
+                await ctx.send(f"❌ Channel nahi mila ID: {DAILY_POST_CHANNEL_ID}")
+                return
+            
+            # Run the post generation in background
+            global _topic_index
+            topic = DAILY_TOPICS[_topic_index % len(DAILY_TOPICS)]
+            _topic_index += 1
+            
+            await ctx.send(f"⏳ Post generate ho raha hai topic: **{topic}**")
+            
+            # Research
+            research = call_groq_with_search(topic)
+            if not research:
+                research = f"General knowledge on: {topic}"
+            
+            # Compose
+            post = call_nemotron_compose(topic, research)
+            if not post:
+                post = f"📌 Topic tha **{topic}**, lekin content generate nahi ho paya."
+            
+            # Send
+            try:
+                for i in range(0, len(post), 1900):
+                    await channel.send(post[i:i + 1900])
+                await ctx.send(f"✅ Post successfully bhej diya channel me!")
+            except Exception as e:
+                await ctx.send(f"❌ Post bhejte waqt error: {e}")
+                logger.error(f"[Action] trigger_post send failed: {e}")
+            return
 
         elif action == "chat_reply":
             pass
