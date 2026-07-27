@@ -354,22 +354,51 @@ Format:
 # ==================== ACTION EXECUTOR (for !do) ====================
 
 async def find_member(guild: discord.Guild, name: str):
-    name = name.lstrip("@").lower()
+    """Find member by name/nick with flexible matching"""
+    name = name.lstrip("@").lower().strip()
+    
+    # Try exact match
     for m in guild.members:
-        if name in m.name.lower() or (m.nick and name in m.nick.lower()) or name in str(m.id):
+        if m.name.lower() == name or (m.nick and m.nick.lower() == name) or str(m.id) == name:
             return m
+    
+    # Try partial match
+    for m in guild.members:
+        if name in m.name.lower() or (m.nick and name in m.nick.lower()):
+            return m
+    
     return None
 
 async def find_role(guild: discord.Guild, name: str):
+    """Find role by exact name match (AI should provide exact names)"""
+    name_clean = name.lower().strip().lstrip("@")
+    
+    # Exact match
     for r in guild.roles:
-        if name.lower() in r.name.lower():
+        if r.name.lower() == name_clean:
             return r
+    
+    # Fallback: partial
+    for r in guild.roles:
+        if name_clean in r.name.lower():
+            return r
+    
     return None
 
 async def find_channel(guild: discord.Guild, name: str):
+    """Find channel by exact name match (AI should provide exact names)"""
+    name_lower = name.lower().strip()
+    
+    # Exact match preferred
     for c in guild.channels:
-        if name.lower() in c.name.lower():
+        if c.name.lower() == name_lower:
             return c
+    
+    # Fallback: partial match
+    for c in guild.channels:
+        if name_lower in c.name.lower():
+            return c
+    
     return None
 
 async def find_category(guild: discord.Guild, name: str):
@@ -584,7 +613,10 @@ async def execute_action(ctx: commands.Context, action_data: dict):
             if ch:
                 await ch.send(params["message"])
             else:
-                await ctx.send("Channel nahi mila.")
+                # Debug: Show available channels
+                available = [c.name for c in guild.channels if isinstance(c, discord.TextChannel)][:10]
+                logger.error(f"[Action] Channel not found: '{params['channel']}'. Available: {available}")
+                await ctx.send(f"❌ Channel nahi mila: '{params['channel']}'\n\nAvailable channels: {', '.join(available[:5])}")
                 return
 
         elif action == "set_channel_topic":
@@ -798,9 +830,22 @@ async def do(ctx: commands.Context, *, instruction: str):
         return
 
     logger.info(f"[!do] Admin command from {ctx.author} in {ctx.guild}: {instruction}")
+    
+    # Get available channels, roles, members for AI context
+    channels_list = [c.name for c in ctx.guild.channels]
+    roles_list = [r.name for r in ctx.guild.roles]
+    
+    # Add context to instruction
+    enhanced_instruction = f"""Available channels: {', '.join(channels_list[:20])}
+Available roles: {', '.join(roles_list[:15])}
+
+User instruction: {instruction}
+
+Note: Use EXACT channel/role names from the available lists above when creating JSON params."""
+    
     async with ctx.typing():
         try:
-            raw_result = route_and_answer(ADMIN_TASK_INSTRUCTIONS, instruction)
+            raw_result = route_and_answer(ADMIN_TASK_INSTRUCTIONS, enhanced_instruction)
             cleaned = raw_result.replace("```json", "").replace("```", "").strip()
             action_data = json.loads(cleaned)
             logger.info(f"[!do] Parsed action: {action_data.get('action', 'unknown')}")
