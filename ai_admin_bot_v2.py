@@ -81,6 +81,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 intents.moderation = True
+intents.guilds = True
 
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
 
@@ -311,20 +312,40 @@ instruction dega. Us instruction ko samajh kar STRICTLY neeche diye JSON format 
 Sirf JSON return kar, koi extra text nahi.
 
 Available actions:
-1. create_channel -> params: {"name": str, "type": "text" or "voice"}
+1. create_channel -> params: {"name": str, "type": "text" or "voice", "category": str (optional)}
 2. delete_channel -> params: {"name": str}
-3. set_channel_topic -> params: {"name": str, "topic": str}
-4. create_role -> params: {"name": str, "color": "hex like #ff0000 (optional)"}
-5. assign_role -> params: {"member": "username", "role": "role name"}
-6. remove_role -> params: {"member": "username", "role": "role name"}
-7. kick -> params: {"member": "username", "reason": str}
-8. ban -> params: {"member": "username", "reason": str}
-9. timeout -> params: {"member": "username", "minutes": int, "reason": str}
-10. nickname -> params: {"member": "username", "new_nick": str}
-11. purge -> params: {"count": int}
-12. announce -> params: {"channel": "channel name", "message": str}
-13. trigger_post -> params: {}   (jab user scheduled post manually trigger karna chahe)
-14. chat_reply -> params: {}   (jab user sirf baat kar raha ho, koi action nahi chahiye)
+3. edit_channel -> params: {"name": str, "new_name": str (optional), "slowmode": int (optional)}
+4. set_channel_topic -> params: {"name": str, "topic": str}
+5. set_channel_permissions -> params: {"channel": str, "role": str, "send_messages": bool, "read_messages": bool (optional)}
+6. create_category -> params: {"name": str}
+7. delete_category -> params: {"name": str}
+8. create_role -> params: {"name": str, "color": "hex like #ff0000 (optional)", "hoist": bool (optional), "mentionable": bool (optional)}
+9. delete_role -> params: {"name": str}
+10. edit_role -> params: {"name": str, "new_name": str (optional), "color": str (optional), "permissions": list (optional)}
+11. assign_role -> params: {"member": "username", "role": "role name"}
+12. remove_role -> params: {"member": "username", "role": "role name"}
+13. kick -> params: {"member": "username", "reason": str}
+14. ban -> params: {"member": "username", "reason": str, "delete_days": int (optional)}
+15. unban -> params: {"user_id": str, "reason": str}
+16. timeout -> params: {"member": "username", "minutes": int, "reason": str}
+17. remove_timeout -> params: {"member": "username"}
+18. nickname -> params: {"member": "username", "new_nick": str}
+19. move_member -> params: {"member": "username", "channel": "voice channel name"}
+20. disconnect_member -> params: {"member": "username"}
+21. purge -> params: {"count": int}
+22. pin_message -> params: {"message_id": str}
+23. unpin_message -> params: {"message_id": str}
+24. create_invite -> params: {"channel": str, "max_uses": int (optional), "max_age": int (optional)}
+25. announce -> params: {"channel": "channel name", "message": str}
+26. add_reaction -> params: {"channel": str, "message_id": str, "emoji": str}
+27. create_thread -> params: {"channel": str, "name": str, "message": str (optional)}
+28. lock_thread -> params: {"thread": str}
+29. unlock_thread -> params: {"thread": str}
+30. archive_thread -> params: {"thread": str}
+31. edit_server -> params: {"name": str (optional), "description": str (optional)}
+32. create_webhook -> params: {"channel": str, "name": str}
+33. trigger_post -> params: {}   (jab user scheduled post manually trigger karna chahe)
+34. chat_reply -> params: {}   (jab user sirf baat kar raha ho, koi action nahi chahiye)
 
 Format:
 {"action": "...", "params": {...}, "reply": "user ko dikhne wala short confirmation message in Hinglish"}
@@ -351,6 +372,18 @@ async def find_channel(guild: discord.Guild, name: str):
             return c
     return None
 
+async def find_category(guild: discord.Guild, name: str):
+    for c in guild.categories:
+        if name.lower() in c.name.lower():
+            return c
+    return None
+
+async def find_thread(guild: discord.Guild, name: str):
+    for thread in guild.threads:
+        if name.lower() in thread.name.lower():
+            return thread
+    return None
+
 async def execute_action(ctx: commands.Context, action_data: dict):
     action = action_data.get("action")
     params = action_data.get("params", {})
@@ -361,10 +394,14 @@ async def execute_action(ctx: commands.Context, action_data: dict):
     try:
         if action == "create_channel":
             ch_type = params.get("type", "text")
+            category = None
+            if params.get("category"):
+                category = await find_category(guild, params["category"])
+            
             if ch_type == "voice":
-                await guild.create_voice_channel(params["name"])
+                await guild.create_voice_channel(params["name"], category=category)
             else:
-                await guild.create_text_channel(params["name"])
+                await guild.create_text_channel(params["name"], category=category)
 
         elif action == "delete_channel":
             ch = await find_channel(guild, params["name"])
@@ -374,11 +411,64 @@ async def execute_action(ctx: commands.Context, action_data: dict):
                 await ctx.send("Channel nahi mila.")
                 return
 
+        elif action == "edit_channel":
+            ch = await find_channel(guild, params["name"])
+            if not ch:
+                await ctx.send("Channel nahi mila.")
+                return
+            
+            edit_kwargs = {}
+            if params.get("new_name"):
+                edit_kwargs["name"] = params["new_name"]
+            if "slowmode" in params and isinstance(ch, discord.TextChannel):
+                edit_kwargs["slowmode_delay"] = params["slowmode"]
+            
+            await ch.edit(**edit_kwargs)
+
+        elif action == "create_category":
+            await guild.create_category(params["name"])
+
+        elif action == "delete_category":
+            cat = await find_category(guild, params["name"])
+            if cat:
+                await cat.delete()
+            else:
+                await ctx.send("Category nahi mila.")
+                return
+
         elif action == "create_role":
             color = discord.Color.default()
             if params.get("color"):
                 color = discord.Color(int(params["color"].lstrip("#"), 16))
-            await guild.create_role(name=params["name"], color=color)
+            
+            await guild.create_role(
+                name=params["name"],
+                color=color,
+                hoist=params.get("hoist", False),
+                mentionable=params.get("mentionable", False)
+            )
+
+        elif action == "delete_role":
+            role = await find_role(guild, params["name"])
+            if role:
+                await role.delete()
+            else:
+                await ctx.send("Role nahi mila.")
+                return
+
+        elif action == "edit_role":
+            role = await find_role(guild, params["name"])
+            if not role:
+                await ctx.send("Role nahi mila.")
+                return
+            
+            edit_kwargs = {}
+            if params.get("new_name"):
+                edit_kwargs["name"] = params["new_name"]
+            if params.get("color"):
+                edit_kwargs["color"] = discord.Color(int(params["color"].lstrip("#"), 16))
+            
+            await role.edit(**edit_kwargs)
 
         elif action == "assign_role":
             member = await find_member(guild, params["member"])
@@ -409,16 +499,47 @@ async def execute_action(ctx: commands.Context, action_data: dict):
         elif action == "ban":
             member = await find_member(guild, params["member"])
             if member:
-                await member.ban(reason=params.get("reason", "No reason given"))
+                delete_days = params.get("delete_days", 0)
+                await member.ban(reason=params.get("reason", "No reason given"), delete_message_days=delete_days)
             else:
                 await ctx.send("Member nahi mila.")
                 return
+
+        elif action == "unban":
+            user_id = int(params["user_id"])
+            user = await bot.fetch_user(user_id)
+            await guild.unban(user, reason=params.get("reason", "No reason given"))
 
         elif action == "timeout":
             member = await find_member(guild, params["member"])
             if member:
                 duration = discord.utils.utcnow() + datetime.timedelta(minutes=params.get("minutes", 5))
                 await member.timeout(duration, reason=params.get("reason", "No reason given"))
+            else:
+                await ctx.send("Member nahi mila.")
+                return
+
+        elif action == "remove_timeout":
+            member = await find_member(guild, params["member"])
+            if member:
+                await member.timeout(None)
+            else:
+                await ctx.send("Member nahi mila.")
+                return
+
+        elif action == "move_member":
+            member = await find_member(guild, params["member"])
+            voice_ch = await find_channel(guild, params["channel"])
+            if member and voice_ch and isinstance(voice_ch, discord.VoiceChannel):
+                await member.move_to(voice_ch)
+            else:
+                await ctx.send("Member ya voice channel nahi mila.")
+                return
+
+        elif action == "disconnect_member":
+            member = await find_member(guild, params["member"])
+            if member:
+                await member.move_to(None)
             else:
                 await ctx.send("Member nahi mila.")
                 return
@@ -434,6 +555,29 @@ async def execute_action(ctx: commands.Context, action_data: dict):
         elif action == "purge":
             count = int(params.get("count", 5))
             await ctx.channel.purge(limit=count + 1)
+
+        elif action == "pin_message":
+            msg_id = int(params["message_id"])
+            msg = await ctx.channel.fetch_message(msg_id)
+            await msg.pin()
+
+        elif action == "unpin_message":
+            msg_id = int(params["message_id"])
+            msg = await ctx.channel.fetch_message(msg_id)
+            await msg.unpin()
+
+        elif action == "create_invite":
+            ch = await find_channel(guild, params["channel"])
+            if ch:
+                invite = await ch.create_invite(
+                    max_uses=params.get("max_uses", 0),
+                    max_age=params.get("max_age", 0)
+                )
+                await ctx.send(f"Invite link: {invite.url}")
+                return
+            else:
+                await ctx.send("Channel nahi mila.")
+                return
 
         elif action == "announce":
             ch = await find_channel(guild, params["channel"])
@@ -455,25 +599,129 @@ async def execute_action(ctx: commands.Context, action_data: dict):
                 await ctx.send("Channel nahi mila.")
                 return
 
+        elif action == "set_channel_permissions":
+            ch = await find_channel(guild, params["channel"])
+            if not ch:
+                await ctx.send("Channel nahi mila.")
+                return
+            
+            # Find role (default to @everyone if not specified or if role is "everyone")
+            role_name = params.get("role", "everyone").lower()
+            if role_name == "everyone" or role_name == "@everyone":
+                role = guild.default_role
+            else:
+                role = await find_role(guild, role_name)
+                if not role:
+                    await ctx.send(f"Role '{role_name}' nahi mila.")
+                    return
+            
+            # Set permissions
+            overwrite = ch.overwrites_for(role)
+            
+            # Send messages permission
+            if "send_messages" in params:
+                overwrite.send_messages = params["send_messages"]
+            
+            # Read messages permission (optional)
+            if "read_messages" in params:
+                overwrite.read_messages = params["read_messages"]
+            
+            await ch.set_permissions(role, overwrite=overwrite)
+            logger.info(f"[Action] Set permissions for {role.name} in {ch.name}")
+
+        elif action == "add_reaction":
+            ch = await find_channel(guild, params["channel"])
+            if ch:
+                msg_id = int(params["message_id"])
+                msg = await ch.fetch_message(msg_id)
+                await msg.add_reaction(params["emoji"])
+            else:
+                await ctx.send("Channel nahi mila.")
+                return
+
+        elif action == "create_thread":
+            ch = await find_channel(guild, params["channel"])
+            if ch and isinstance(ch, discord.TextChannel):
+                if params.get("message"):
+                    # Create thread from message
+                    msg = await ch.send(params["message"])
+                    await msg.create_thread(name=params["name"])
+                else:
+                    # Create standalone thread
+                    await ch.create_thread(name=params["name"])
+            else:
+                await ctx.send("Text channel nahi mila.")
+                return
+
+        elif action == "lock_thread":
+            thread = await find_thread(guild, params["thread"])
+            if thread:
+                await thread.edit(locked=True)
+            else:
+                await ctx.send("Thread nahi mila.")
+                return
+
+        elif action == "unlock_thread":
+            thread = await find_thread(guild, params["thread"])
+            if thread:
+                await thread.edit(locked=False)
+            else:
+                await ctx.send("Thread nahi mila.")
+                return
+
+        elif action == "archive_thread":
+            thread = await find_thread(guild, params["thread"])
+            if thread:
+                await thread.edit(archived=True)
+            else:
+                await ctx.send("Thread nahi mila.")
+                return
+
+        elif action == "edit_server":
+            edit_kwargs = {}
+            if params.get("name"):
+                edit_kwargs["name"] = params["name"]
+            if params.get("description"):
+                edit_kwargs["description"] = params["description"]
+            
+            await guild.edit(**edit_kwargs)
+
+        elif action == "create_webhook":
+            ch = await find_channel(guild, params["channel"])
+            if ch and isinstance(ch, discord.TextChannel):
+                webhook = await ch.create_webhook(name=params["name"])
+                await ctx.send(f"Webhook created: {webhook.url}")
+                return
+            else:
+                await ctx.send("Text channel nahi mila.")
+                return
+
         elif action == "trigger_post":
             # Manually trigger the daily post
             logger.info("[Action] Manually triggering daily post")
             
-            if DAILY_POST_CHANNEL_ID == 0:
+            # Double check channel ID
+            current_channel_id = int(os.getenv("DAILY_POST_CHANNEL_ID", "0"))
+            logger.info(f"[Action] trigger_post: DAILY_POST_CHANNEL_ID = {current_channel_id}")
+            
+            if current_channel_id == 0:
                 await ctx.send("❌ DAILY_POST_CHANNEL_ID set nahi hai configuration me.")
+                logger.error("[Action] trigger_post aborted: DAILY_POST_CHANNEL_ID is 0")
                 return
             
-            channel = bot.get_channel(DAILY_POST_CHANNEL_ID)
+            channel = bot.get_channel(current_channel_id)
             if channel is None:
-                await ctx.send(f"❌ Channel nahi mila ID: {DAILY_POST_CHANNEL_ID}")
+                await ctx.send(f"❌ Channel nahi mila ID: {current_channel_id}")
+                logger.error(f"[Action] Channel not found with ID: {current_channel_id}")
                 return
             
-            # Run the post generation in background
+            # Run the post generation
             global _topic_index
             topic = DAILY_TOPICS[_topic_index % len(DAILY_TOPICS)]
             _topic_index += 1
             
             await ctx.send(f"⏳ Post generate ho raha hai topic: **{topic}**")
+            logger.info(f"[Action] Generating post for topic: {topic}")
             
             # Research
             research = call_groq_with_search(topic)
@@ -490,6 +738,7 @@ async def execute_action(ctx: commands.Context, action_data: dict):
                 for i in range(0, len(post), 1900):
                     await channel.send(post[i:i + 1900])
                 await ctx.send(f"✅ Post successfully bhej diya channel me!")
+                logger.info(f"[Action] Post sent successfully to channel {current_channel_id}")
             except Exception as e:
                 await ctx.send(f"❌ Post bhejte waqt error: {e}")
                 logger.error(f"[Action] trigger_post send failed: {e}")
