@@ -784,10 +784,19 @@ async def execute_action(ctx: commands.Context, action_data: dict):
 
     except discord.Forbidden as e:
         logger.error(f"[Action] Permission denied for {action}: {e}")
-        await ctx.send("❌ Mere paas is action ke liye permission nahi hai. Bot role ko upar move kar server settings me.")
+        error_msg = (
+            "❌ **Permission Error!**\n\n"
+            "Bot ko is action ke liye permission nahi hai.\n\n"
+            "**Fix kaise kare:**\n"
+            "1. Server Settings → Roles\n"
+            "2. Bot ka role sabse **UPAR** move karo (Administrator role ke neeche)\n"
+            "3. Bot role ko **Administrator** permission do\n"
+            "4. Phir se try karo!"
+        )
+        await ctx.send(error_msg)
     except Exception as e:
         logger.error(f"[Action] Failed to execute {action}: {e}", exc_info=True)
-        await ctx.send(f"❌ Error aaya: {type(e).__name__}: {str(e)}")
+        await ctx.send(f"❌ Error aaya: {type(e).__name__}: {str(e)[:100]}")
 
 # ==================== COMMANDS ====================
 
@@ -802,6 +811,52 @@ async def on_ready():
     if not daily_post_task.is_running():
         daily_post_task.start()
         logger.info("⏰ Daily post task started!")
+
+@bot.event
+async def on_message(message):
+    """Handle DM messages and regular messages"""
+    # Ignore bot's own messages
+    if message.author == bot.user:
+        return
+    
+    # Handle DM messages
+    if isinstance(message.channel, discord.DMChannel):
+        logger.info(f"[DM] Message from {message.author}: {message.content[:50]}")
+        
+        async with message.channel.typing():
+            try:
+                # Use AI to respond
+                result = route_and_answer(CHAT_TASK_INSTRUCTIONS, message.content)
+                
+                # Split if too long
+                if len(result) <= 2000:
+                    await message.channel.send(result)
+                else:
+                    chunks = []
+                    while result:
+                        if len(result) <= 1900:
+                            chunks.append(result)
+                            break
+                        
+                        split_pos = result[:1900].rfind('\n')
+                        if split_pos == -1:
+                            split_pos = result[:1900].rfind(' ')
+                        if split_pos == -1:
+                            split_pos = 1900
+                        
+                        chunks.append(result[:split_pos])
+                        result = result[split_pos:].lstrip()
+                    
+                    for idx, chunk in enumerate(chunks, 1):
+                        await message.channel.send(f"**[Part {idx}/{len(chunks)}]**\n{chunk}")
+                
+                logger.info(f"[DM] Replied to {message.author}")
+            except Exception as e:
+                logger.error(f"[DM] Error replying: {e}", exc_info=True)
+                await message.channel.send("❌ Sorry, error aaya response generate karte waqt.")
+    
+    # Process commands for server messages
+    await bot.process_commands(message)
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
