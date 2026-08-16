@@ -1,368 +1,102 @@
-<div align="center">
-
-# 🤖 AI-Powered Discord Admin Bot
-
-### *Multi-Model Intelligence | Smart Routing | Automated Posts*
-
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Discord.py](https://img.shields.io/badge/Discord.py-2.0+-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discordpy.readthedocs.io/)
-[![Groq](https://img.shields.io/badge/Groq-AI-orange.svg?style=for-the-badge)](https://groq.com)
-[![OpenRouter](https://img.shields.io/badge/OpenRouter-AI-purple.svg?style=for-the-badge)](https://openrouter.ai)
-
-<img src="https://raw.githubusercontent.com/Tarikul-Islam-Anik/Animated-Fluent-Emojis/master/Emojis/Smilies/Robot.png" width="200" alt="robot"/>
-
-*Ek intelligent Discord bot jo GPT-OSS-120B router ke saath multiple AI models ko orchestrate karta hai*
-
-[Features](#-features) • [Installation](#-installation) • [Commands](#-commands) • [Architecture](#-architecture) • [Deploy](#-deploy)
-
----
-
-</div>
-
-## ✨ Features
-
-<table>
-<tr>
-<td width="50%">
-
-### 🧠 **Smart AI Router**
-- **GPT-OSS-120B** primary router
-- **GPT-OSS-20B** fallback system  
-- Auto-delegates to specialized models:
-  - 🐳 **Qwen** for general reasoning
-  - 🚀 **Nemotron** for complex tasks
-
-</td>
-<td width="50%">
-
-### 🎯 **Admin Commands**
-- 📝 Natural language server control
-- 🔧 Channel, role, member management
-- 🚫 Moderation (kick, ban, timeout)
-- 📢 Announcements & purge messages
-
-</td>
-</tr>
-<tr>
-<td width="50%">
-
-### ⏰ **Scheduled Posts**
-- Hourly auto-posts (configurable)
-- 5 rotating topics:
-  - 💻 Coding/DSA tips
-  - 🤖 AI/Tech news  
-  - 📱 Android dev tricks
-  - 🎲 Random tech facts
-  - 💪 Motivational quotes
-
-</td>
-<td width="50%">
-
-### 🛡️ **Production Ready**
-- 🔑 Multiple API key rotation
-- 📊 Comprehensive logging
-- 🔄 Auto-retry on failures
-- 🌐 Keep-alive web server
-- ☁️ Render deployment ready
-
-</td>
-</tr>
-</table>
-
----
-
-## 🏗️ Architecture
-
-```mermaid
-graph TB
-    User[👤 Discord User] -->|!ai message| Bot[🤖 Discord Bot]
-    User -->|!do instruction| Bot
-    
-    Bot --> Router{🧠 GPT-OSS-120B<br/>Router}
-    Router -->|Fallback| Fallback[GPT-OSS-20B]
-    
-    Router -->|self| DirectReply[💬 Direct Reply]
-    Router -->|qwen| Qwen[🐳 Qwen Model]
-    Router -->|nemotron| Nemotron[🚀 Nemotron Model]
-    
-    Timer[⏰ Hourly Timer] --> Search[🔍 Groq Search]
-    Search --> Compose[✍️ Nemotron Compose]
-    Compose --> Post[📤 Channel Post]
-    
-    style Router fill:#ff6b6b
-    style Qwen fill:#4ecdc4
-    style Nemotron fill:#95e1d3
-    style Timer fill:#ffd93d
-```
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-
-```bash
-Python 3.10+
-Discord Bot Token
-Groq API Keys
-OpenRouter API Keys
-```
-
-### Step 1: Clone & Setup
-
-```bash
-# Clone repository
-git clone <your-repo-url>
-cd discord-ai-bot
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Step 2: Environment Configuration
-
-Create a `.env` file:
-
-```env
-# Discord Configuration
-DISCORD_BOT_TOKEN=your_discord_bot_token_here
-
-# Groq API Keys (comma-separated for rotation)
-GROQ_API_KEYS=key1,key2,key3
-
-# OpenRouter API Keys (comma-separated)
-OPENROUTER_API_KEYS=key1,key2,key3
-
-# Model Configuration (optional, has defaults)
-GROQ_MODEL_ROUTER=openai/gpt-oss-120b
-GROQ_MODEL_FALLBACK=openai/gpt-oss-20b
-GROQ_MODEL_QWEN=qwen/qwen3.6-27b
-OPENROUTER_MODEL_NEMOTRON=nvidia/nemotron-3-ultra-550b-a55b:free
-
-# Bot Settings
-COMMAND_PREFIX=!
-DAILY_POST_CHANNEL_ID=1234567890123456789  # Your channel ID
-```
-
-### Step 3: Get Channel ID
-
-1. Discord → User Settings → Advanced → **Enable Developer Mode**
-2. Right-click target channel → **Copy Channel ID**
-3. Paste in `.env` as `DAILY_POST_CHANNEL_ID`
-
----
-
-## 💻 Commands
-
-### 🎤 Chat Commands
-
-```bash
-!ai <message>              # Talk to AI assistant
-!ai kaise ho?              # Hinglish support
-!ai explain recursion      # Technical questions
-```
-
-### 🔧 Admin Commands (Admins Only)
-
-#### Channel Management
-```bash
-!do create channel announcements
-!do delete channel old-chat
-!do set topic of announcements to "Latest updates here!"
-```
-
-#### Role Management
-```bash
-!do create role Moderator with color #ff0000
-!do assign Moderator role to @username
-!do remove Admin role from @username
-```
-
-#### Member Moderation
-```bash
-!do kick @username reason: spam
-!do ban @username reason: toxic behavior
-!do timeout @username for 30 minutes
-!do change nickname of @username to NewName
-```
-
-#### Utilities
-```bash
-!do purge 10 messages
-!do announce in general "Server maintenance tonight!"
-!do post dal                    # Trigger scheduled post manually
-```
-
----
-
-## ⚙️ Configuration
-
-### 🎯 Topics Customization
-
-Edit `DAILY_TOPICS` in `ai_admin_bot_v2.py`:
-
-```python
-DAILY_TOPICS = [
-    "Your custom topic 1",
-    "Your custom topic 2",
-    "Your custom topic 3",
-    # Add more topics
-]
-```
-
-### ⏰ Schedule Adjustment
-
-Change posting frequency in the decorator:
-
-```python
-@tasks.loop(hours=1)  # Change to hours=2, hours=6, etc.
-async def daily_post_task():
-    ...
-```
-
----
-
-## 🌐 Deploy on Render
-
-### Quick Deploy
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com)
-
-### Manual Setup
-
-1. **Create New Web Service** on Render
-2. **Connect GitHub Repository**
-3. **Configure Build Settings:**
-   ```
-   Build Command: pip install -r requirements.txt
-   Start Command: python ai_admin_bot_v2.py
-   ```
-4. **Add Environment Variables** (from `.env` file)
-5. **Deploy!** 🚀
-
----
-
-## 📊 Logs & Monitoring
-
-Bot includes comprehensive logging:
-
-```
-[2026-07-26 10:12:12] [INFO    ] AIBot: ✅ Bot online hai: BotName
-[2026-07-26 10:12:12] [INFO    ] AIBot: 📊 Servers: 3, Users: 1250
-[2026-07-26 10:12:12] [INFO    ] AIBot: 🔑 Groq keys loaded: 3
-[2026-07-26 10:12:12] [INFO    ] AIBot: ⏰ Daily post task started!
-[2026-07-26 11:00:00] [INFO    ] AIBot: [Daily Post] Starting for topic: AI/Tech news
-[2026-07-26 11:00:15] [INFO    ] AIBot: [Daily Post] ✅ Posted successfully
-```
-
----
-
-## 🔐 Security Best Practices
-
-<table>
-<tr>
-<td>
-
-✅ **DO**
-- Use `.env` for secrets
-- Add `.env` to `.gitignore`
-- Rotate API keys regularly
-- Use admin-only commands
-- Monitor bot logs
-
-</td>
-<td>
-
-❌ **DON'T**
-- Commit secrets to Git
-- Share API keys publicly
-- Give bot admin without need
-- Ignore rate limits
-- Skip error handling
-
-</td>
-</tr>
-</table>
-
----
-
-## 🐛 Troubleshooting
-
-### Bot Not Starting?
-
-```bash
-# Check Discord token
-echo $DISCORD_BOT_TOKEN
-
-# Verify dependencies
-pip install -r requirements.txt
-
-# Test imports
-python -c "import discord; print(discord.__version__)"
-```
-
-### API Rate Limits?
-
-- Bot automatically rotates between multiple keys
-- Add more keys to `.env` (comma-separated)
-- Check Groq/OpenRouter dashboard for limits
-
-### Commands Not Working?
-
-- Ensure bot has proper permissions
-- Check command prefix matches (default: `!`)
-- Admin commands need Administrator permission
-
----
-
-## 📝 Requirements
-
-```txt
-discord.py>=2.0.0
-requests>=2.31.0
-python-dotenv>=1.0.0
-Flask>=3.0.0
-```
-
----
-
-## 🤝 Contributing
-
-Contributions welcome! Please:
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open Pull Request
-
----
-
-## 📜 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- [Discord.py](https://discordpy.readthedocs.io/) - Awesome Discord API wrapper
-- [Groq](https://groq.com) - Ultra-fast LLM inference
-- [OpenRouter](https://openrouter.ai) - Unified LLM API
-- [Render](https://render.com) - Easy deployment platform
-
----
-
-<div align="center">
-
-### 🌟 Star this repo if you found it helpful!
-
-Made with ❤️ and ☕
-
-[⬆ Back to Top](#-ai-powered-discord-admin-bot)
-
-</div>
+# discord
+> A Python-based Discord administration bot that implements scheduled hourly posts, a keep-alive web endpoint, environment-driven configuration, and a conceptual multi-model AI routing approach (Groq + OpenRouter) as implemented in ai_admin_bot_v2.py.
+
+## Overview
+This repository contains a single main implementation file (ai_admin_bot_v2.py), a requirements.txt, and a README describing features. The code combines a discord.py bot, a Flask keep-alive endpoint, scheduled posting via discord.ext.tasks.loop, and scaffolded HTTP calls to external model APIs with simple key-rotation ideas.
+
+## What it does
+- Runs a Discord bot (discord.py) with admin-style commands and an AI chat command.
+- Posts scheduled content (hourly) to a configured channel using a DAILY_TOPICS list.
+- Starts a minimal Flask web server on a background thread as a keep-alive endpoint.
+- Parses configuration from environment variables via python-dotenv.
+- Contains scaffolded functions to call Groq/OpenRouter HTTP APIs and attempts key rotation (implementation partial/truncated in the supplied file).
+
+## Key capabilities
+- discord.py bot with configurable command prefix (COMMAND_PREFIX).
+- Background scheduled poster using discord.ext.tasks.loop.
+- Keep-alive Flask home route started as a daemon thread.
+- Environment-driven configuration (.env) and parsing via dotenv.
+- Conceptual multi-model routing (router + fallback + delegates) and multiple API key support (GROQ_API_KEYS, OPENROUTER_API_KEYS).
+- Basic logging setup (logger = logging.getLogger('AIBot')).
+
+## Technology
+- Python 3.10+ (documented in README excerpt)
+- discord.py
+- requests (synchronous HTTP client)
+- Flask
+- python-dotenv
+- Groq API (HTTP)
+- OpenRouter API (HTTP)
+
+These dependencies are listed in requirements.txt (un-pinned/no versions).
+
+## Repository structure
+- README.md — project README (detailed README excerpt included in repo).
+- ai_admin_bot_v2.py — main bot implementation (single-file implementation; partially truncated in supplied evidence).
+- requirements.txt — lists dependencies: discord.py, requests, Flask, dotenv.
+
+## Getting started
+The repository includes installation steps in its README excerpt. The code expects environment variables and uses python-dotenv to load a .env file.
+
+Typical steps documented in the repo (as provided in README excerpt):
+- Clone the repository.
+- Create and activate a Python virtual environment.
+- Install dependencies with pip install -r requirements.txt.
+- Provide required secrets and configuration via a .env file (see Configuration below).
+- Run the bot script (ai_admin_bot_v2.py) — the exact run command is implied by the single-file layout but not explicitly shown in the supplied excerpt.
+
+If you need to inspect configuration and manifests locally, open requirements.txt and ai_admin_bot_v2.py to see dependency usage, env parsing, DAILY_TOPICS, and scheduling logic.
+
+## Configuration
+Configuration is environment-driven and read via python-dotenv. The README excerpt and ai_admin_bot_v2.py show the following environment variables (example names shown as evidenced):
+
+- DISCORD_BOT_TOKEN — Discord bot token (required to connect).
+- GROQ_API_KEYS — comma-separated list for key rotation.
+- OPENROUTER_API_KEYS — comma-separated list for key rotation.
+- GROQ_MODEL_ROUTER (optional, has defaults in code excerpt).
+- GROQ_MODEL_FALLBACK (optional).
+- GROQ_MODEL_QWEN (optional).
+- OPENROUTER_MODEL_NEMOTRON (optional).
+- COMMAND_PREFIX — command prefix for bot commands.
+- DAILY_POST_CHANNEL_ID — channel ID where scheduled posts are sent.
+
+Other configuration points:
+- DAILY_TOPICS is defined inside ai_admin_bot_v2.py and can be edited to change scheduled post topics.
+- The Flask keep-alive app exposes a home route and is started on a background thread in the main script.
+
+Note: The supplied requirements.txt contains unpinned package names only.
+
+## Development and quality notes
+Observed gaps and quality considerations from the supplied repository contents:
+- No automated tests are present in the supplied files.
+- All dependencies in requirements.txt are unpinned (no exact versions), which affects reproducibility.
+- The project is implemented as a single main file (ai_admin_bot_v2.py); splitting into modules would improve testability.
+- The code imports the synchronous requests library while running inside an async discord.py bot; synchronous HTTP calls can block the event loop and affect responsiveness.
+- The implementation for Groq/OpenRouter calls is partially scaffolded/truncated in the provided file; completeness of error handling and retries is unclear.
+- No linting/formatting or CI configuration files were supplied.
+
+Suggested first development tasks (based on observed gaps):
+- Add a .gitignore and .env.example to avoid accidental secret commits.
+- Validate required environment variables at startup and fail fast with clear errors.
+- Replace blocking requests calls with an async HTTP client (e.g., aiohttp) or run them in an executor.
+- Pin dependency versions in requirements.txt.
+- Break ai_admin_bot_v2.py into smaller modules for API clients, bot commands, scheduler, and webserver to enable unit testing.
+
+## Safety and responsible use
+Security and operational concerns evident in the supplied code and documentation:
+- Secrets are loaded from a .env file but there is no .gitignore in the supplied files to ensure .env is excluded — risk of accidental secret commits.
+- Splitting API key environment values with .split(',') can introduce empty strings if variables are empty; environment validation is needed.
+- No explicit rate-limit/backoff handling or robust retry logic is visible for external API calls; this may lead to failures or abusive patterns against model APIs.
+- Use of blocking HTTP calls in an async bot can make the bot unresponsive if external services are slow.
+- Some defaults (e.g., DAILY_POST_CHANNEL_ID defaulting to 0 in code excerpt) can lead to misconfiguration if not validated.
+- No evidence of command authorization checks or input sanitization in the supplied excerpt — admin commands may be powerful and require strict permission checks.
+
+## Contributing
+- There is no CONTRIBUTING.md or CI configuration present in the supplied files.
+- To inspect and work on the project:
+  - Open ai_admin_bot_v2.py to review bot setup, DAILY_TOPICS, env parsing, scheduling, and API call scaffolds.
+  - Review requirements.txt for the list of runtime dependencies.
+  - Run the code locally in a virtual environment after creating a .env with the documented variables (exercise caution with real secrets).
+- Recommended first contributions: add .gitignore and .env.example, pin dependencies, add startup validation for env vars, and extract API call logic into testable modules.
+
+(There is no license file present in the supplied repository evidence; no license is declared here.)
